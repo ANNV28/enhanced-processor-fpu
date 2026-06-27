@@ -1,0 +1,91 @@
+module proc_wrapper_toplevel ( 
+    input  logic        CLOCK_50, 
+    input  logic [9:0]  SW, 
+    input  logic [0:0]  KEY, 
+    output logic [9:0]  LEDR 
+); 
+   
+    logic clk; 
+    logic Resetn; 
+    logic Run_sw; 
+    logic Run_sync1, Run_sync2; 
+    logic Run; 
+    //FPU 
+    logic AFin, GFin; 
+l   logic AddSubF, GFout; 
+    // Clock 50 MHz của board 
+    assign clk = CLOCK_50; 
+    assign Resetn = KEY[0];    
+    assign Run_sw = SW[9]; 
+    // Đồng bộ Run theo clock 50 MHz 
+    always_ff @(posedge clk) begin 
+        if (!Resetn) begin 
+            Run_sync1 <= 1'b0; 
+            Run_sync2 <= 1'b0; 
+        end 
+        else begin 
+            Run_sync1 <= Run_sw; 
+            Run_sync2 <= Run_sync1; 
+        end 
+    end 
+ 
+    assign Run = Run_sync2; 
+    // Gán chân CPU 
+    logic [8:0] DIN; 
+    logic [8:0] Bus; 
+    logic [8:0] ADDR; 
+    logic [8:0] DOUT; 
+    logic       W; 
+    logic       Done;
+	 logic R0in,R1in,R2in,R3in,R4in,R5in,R6in,R7in; 
+    logic Ain,Gin,IRin,ADDRin,DOUTin; 
+    logic AddSub,Gout,DINout,incr_PC; 
+    logic [2:0] RoutSel; 
+ 
+    // CPU 
+    enhanced_processor cpu ( 
+        .clk(clk), 
+        .Run(Run), 
+        .Resetn(Resetn), 
+        .DIN(DIN), 
+ 
+        .Bus(Bus), 
+        .ADDR(ADDR), 
+        .DOUT(DOUT), 
+        .W(W), 
+ 
+        .R0in(R0in), .R1in(R1in), .R2in(R2in), .R3in(R3in), 
+        .R4in(R4in), .R5in(R5in), .R6in(R6in), .R7in(R7in), 
+        .Ain(Ain), .Gin(Gin), .IRin(IRin), .ADDRin(ADDRin), .DOUTin(DOUTin), 
+        .AddSub(AddSub), .Gout(Gout), .DINout(DINout), .incr_PC(incr_PC), 
+        .RoutSel(RoutSel), 
+        .Done(Done),.AFin(AFin), 
+		  .GFin(GFin), 
+		  .AddSubF(AddSubF), 
+		  .GFout(GFout) 
+    ); 
+    // A8A7 = 00 -> memory (RAM) 
+    // A8A7 = 01 -> LEDs register 
+    logic mem_sel, led_sel; 
+    logic mem_wren, led_en; 
+   
+    assign mem_sel  = (~ADDR[8]) & (~ADDR[7]); 
+    assign led_sel  = (~ADDR[8]) & ( ADDR[7]); 
+ 
+    assign mem_wren = W & mem_sel; 
+    assign led_en   = W & led_sel; 
+    // RAM 128x9 
+    // dùng A6..A0 làm địa chỉ 
+    logic [8:0] mem_q;
+	 ram128x9 ram0 (.clk (clk),.addr(ADDR[6:0]),.data(DOUT),.wren(mem_wren),.q(mem_q)); 
+	 // Output register nối LEDs 
+	 logic [8:0] led_reg_q; 	
+	 reg9 ledreg (.clk(clk),.rst(Resetn),.en(led_en),.d(DOUT),.q(led_reg_q)); 
+  	 // DIN từ memory về processor 
+	 assign DIN = mem_q; 
+  	 // LED output 
+	 // LEDR8-0: output register 
+	 // LEDR9  : Done 
+	 assign LEDR[8:0] = led_reg_q; 
+	 assign LEDR[9]   = Done; 
+	 endmodule   
